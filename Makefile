@@ -3,10 +3,10 @@ all: test
 
 mindrace: mindrace.c ThinkGearStreamParser.c
 	gcc -c ThinkGearStreamParser.c -o ThinkGearStreamParser.o
-	gcc -c mindrace.c -o mindrace.o
+	gcc -Wall -c mindrace.c -o mindrace.o
 	gcc ThinkGearStreamParser.o mindrace.o -o mindrace
 
-test: MindWave
+test: mindrace
 	./mindrace
 
 spelling: README

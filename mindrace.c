@@ -4,6 +4,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,19 +14,34 @@
 #include "ThinkGearStreamParser.h"
 
 
+// How to connect to the MindWave Mobile
 // #define  MINDWAVEPORT "/dev/ttyUSB1"
-#define MINDWAVEPORT "/dev/rfcomm0"
-#define BUFSIZE      1024
+#define MINDWAVEPORT   "/dev/rfcomm0"
+#define BUFSIZE         128
 
-#define MWERROR      "e"
-#define MWSTRAIGHT   "s"
-#define MWRIGHT      "r"
-#define MWLEFT       "l"
+// Output Stream Configuration
+#define MWERROR        "e"
+#define MWSTRAIGHT     "s"
+#define MWRIGHT        "r"
+#define MWLEFT         "l"
+
+//#define OUTPUT_STDOUT     1
+#define OUTPUT_UDP        1
+#define PORT_LINK      7200
+#define ADDR_LINK      "127.0.0.1"
+
+// DEBUG
+//#define __DEBUG           1
 
 
 static unsigned char attention  = 0;
 static unsigned char meditation = 0;
 static unsigned char error      = 0;
+
+#ifdef OUTPUT_UDP
+static int sockfd = 0;
+static struct sockaddr_in addr;
+#endif
 
 
 int set_interface_attribs (int fd, int speed, int parity)
@@ -66,6 +84,7 @@ int set_interface_attribs (int fd, int speed, int parity)
         return 0;
 }
 
+
 void set_blocking (int fd, int should_block)
 {
         struct termios tty;
@@ -89,27 +108,74 @@ void control (void)
   unsigned char dif;
 
   if (error) {
+#ifdef __DEBUG
+    fprintf (stderr, "[SENDING] Error\n");
+#endif
+#ifdef OUTPUT_STDOUT
     printf (MWERROR);
+#endif
+#ifdef OUTPUT_UDP
+    sendto(sockfd, MWERROR, strlen(MWERROR), 0,
+      (struct sockaddr *)&addr, sizeof(addr));
+#endif
   }
 
   if (attention >= meditation) {
     dif = attention - meditation;
     if (dif <= 10) {
+#ifdef __DEBUG
+      fprintf (stderr, "[SENDING] Straight\n");
+#endif
+#ifdef OUTPUT_STDOUT
       printf (MWSTRAIGHT);
+#endif
+#ifdef OUTPUT_UDP
+      sendto(sockfd, MWSTRAIGHT, strlen(MWSTRAIGHT), 0,
+        (struct sockaddr *)&addr, sizeof(addr));
+#endif
     } else {
+#ifdef __DEBUG
+      fprintf (stderr, "[SENDING] Right\n");
+#endif
+#ifdef OUTPUT_STDOUT
       printf (MWRIGHT);
+#endif
+#ifdef OUTPUT_UDP
+      sendto(sockfd, MWRIGHT, strlen(MWRIGHT), 0,
+        (struct sockaddr *)&addr, sizeof(addr));
+#endif
     }
   } else
   if (meditation >= attention) {
     dif = meditation - attention;
     if (dif <= 10) {
+#ifdef __DEBUG
+      fprintf (stderr, "[SENDING] Straight\n");
+#endif
+#ifdef OUTPUT_STDOUT
       printf (MWSTRAIGHT);
+#endif
+#ifdef OUTPUT_UDP
+      sendto(sockfd, MWSTRAIGHT, strlen(MWSTRAIGHT), 0,
+        (struct sockaddr *)&addr, sizeof(addr));
+#endif
     } else {
+#ifdef __DEBUG
+      fprintf (stderr, "[SENDING] Left\n");
+#endif
+#ifdef OUTPUT_STDOUT
       printf (MWLEFT);
+#endif
+#ifdef OUTPUT_UDP
+      sendto(sockfd, MWLEFT, strlen(MWLEFT), 0,
+        (struct sockaddr *)&addr, sizeof(addr));
+#endif
     }
   }
 
+#ifdef OUTPUT_STDOUT
   fflush (stdout);
+#endif
 
   return;
 }
@@ -166,29 +232,68 @@ void mindhandler(unsigned char extendedCodeLevel,
   return;
 }
 
-int main (void)
-{
-  int res, i, n;
-  unsigned char bytes[BUFSIZE];
 
+int initMW(void)
+{
   int fd = open (MINDWAVEPORT, O_RDWR | O_NOCTTY | O_SYNC);
   if (fd < 0) {
     fprintf (stderr, "error %d opening %s: %s\n", errno, MINDWAVEPORT,
       strerror (errno));
-    return (1);
+    exit (1);
   }
 
   set_interface_attribs (fd, B57600, 0);   // 57,600 bps, 8n1 (no parity)
   set_blocking (fd, 0);                    // set non blocking
 
+  return (fd);
+}
 
-  ThinkGearStreamParser ctx;
-  res = THINKGEAR_initParser(&ctx, PARSER_TYPE_PACKETS, &mindhandler, NULL);
-  if (res) {
-    fprintf (stderr, "error initialising THINKGEAR parser: %i\n", res);
-    return (1);
+#ifdef OUTPUT_UDP
+void initUDP (void)
+{
+  sockfd = socket (AF_INET,SOCK_DGRAM,0);
+  if (sockfd < 0) {
+    fprintf (stderr, "error %d opening socket: %s\n", errno,
+      strerror (errno));
+    exit (1);
   }
 
+  bzero(&addr,sizeof(addr));
+  addr.sin_family      = AF_INET;
+  addr.sin_addr.s_addr = inet_addr(ADDR_LINK);
+  addr.sin_port        = htons(PORT_LINK);
+
+  return;
+}
+#endif
+
+
+void initParser(ThinkGearStreamParser *ctx)
+{
+  int res;
+
+  res = THINKGEAR_initParser(ctx, PARSER_TYPE_PACKETS, &mindhandler, NULL);
+  if (res) {
+    fprintf (stderr, "error initialising THINKGEAR parser: %i\n", res);
+    exit (1);
+  }
+  return;
+}
+
+
+int main (void)
+{
+  int fd = initMW();
+
+  ThinkGearStreamParser ctx;
+  initParser(&ctx);
+
+#ifdef OUTPUT_UDP
+  initUDP();
+#endif
+
+  int res, i, n;
+  unsigned char bytes[BUFSIZE];
   while (1) {
     n = read (fd, bytes, BUFSIZE); // read up to BUFSIZE bytes from the device
 
@@ -200,7 +305,8 @@ int main (void)
         res = THINKGEAR_parseByte(&ctx, bytes[i]);
         if (res < 0) {
           fprintf (stderr, "error parsing byte: %i\n", res);
-          return (1);
+          initParser(&ctx);
+          continue;
         }
         control();  // output robot control char
       }
@@ -211,7 +317,7 @@ int main (void)
       return (1);
     }
 
-    usleep (n * 100);  // sleep approx 100 uS per char transmit
+    usleep ((n * 100) + 1000);  // sleep approx 100 uS per char transmit + 1kuS
   }
 
   return (0);

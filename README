@@ -6,9 +6,10 @@ Jan Tobias Muehlberg <jtmuehlberg@gmail.com>
 
 This is a tiny program to serve as an example for using the MindWave Mobile
 device from Linux to mind-control a robot. The program outputs a stream of
-"r" (right), "l" (left), "s" (straight) and "e" (error) characters to
-stdout. These characters can be used to change the orientation of a robotic
-vehicle moving at a constant speed.
+"r" (right), "l" (left), "s" (straight) and "e" (error) characters, either
+to stdout or to a (remote) recipient via a socket. The character stream may
+be used to change the orientation of a robotic vehicle moving at a constant
+speed.
 
 
 
@@ -25,6 +26,9 @@ http://store.neurosky.com/products/developer-tools-2-1
 The functions set_interface_attribs() and set_blocking() in mindrace.c
 originate from
 http://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
+
+The code is being improved, tested and used by Rafael Bachiller
+<rafael.bachiller@cs.kuleuven.be>.
 
 
 
